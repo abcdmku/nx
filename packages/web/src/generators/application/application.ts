@@ -9,6 +9,7 @@ import {
   joinPathFragments,
   names,
   offsetFromRoot,
+  type PluginConfiguration,
   readNxJson,
   readProjectConfiguration,
   runTasksInSerial,
@@ -37,10 +38,14 @@ import { webInitGenerator } from '../init/init';
 import { Schema } from './schema';
 import { getNpmScope } from '@nx/js/src/utils/package-json/get-npm-scope';
 import { hasWebpackPlugin } from '../../utils/has-webpack-plugin';
-import { addBuildTargetDefaults } from '@nx/devkit/src/generators/target-defaults-utils';
+import {
+  addBuildTargetDefaults,
+  addE2eCiTargetDefaults,
+} from '@nx/devkit/src/generators/target-defaults-utils';
 import { logShowProjectCommand } from '@nx/devkit/src/utils/log-show-project-command';
 import { VitePluginOptions } from '@nx/vite/src/plugins/plugin';
 import { WebpackPluginOptions } from '@nx/webpack/src/plugins/plugin';
+import { findPluginForConfigFile } from '@nx/devkit/src/utils/find-plugin-for-config-file';
 
 interface NormalizedSchema extends Schema {
   projectName: string;
@@ -364,6 +369,19 @@ export async function applicationGeneratorInternal(host: Tree, schema: Schema) {
     tasks.push(lintTask);
   }
 
+  const nxJson = readNxJson(host);
+  let hasPlugin: PluginConfiguration | undefined;
+  let buildPlugin: string;
+  let buildConfigFile: string;
+  if (options.bundler === 'webpack' || options.bundler === 'vite') {
+    buildPlugin = `@nx/${options.bundler}/plugin`;
+    buildConfigFile =
+      options.bundler === 'webpack' ? 'webpack.config.js' : `vite.config.ts`;
+    hasPlugin = nxJson.plugins?.find((p) =>
+      typeof p === 'string' ? p === buildPlugin : p.plugin === buildPlugin
+    );
+  }
+
   if (options.e2eTestRunner === 'cypress') {
     const { configurationGenerator } = ensurePackage<
       typeof import('@nx/cypress')
@@ -384,6 +402,36 @@ export async function applicationGeneratorInternal(host: Tree, schema: Schema) {
       directory: 'src',
       skipFormat: true,
     });
+
+    if (
+      options.addPlugin ||
+      readNxJson(host).plugins?.find((p) =>
+        typeof p === 'string'
+          ? p === '@nx/cypress/plugin'
+          : p.plugin === '@nx/cypress/plugin'
+      )
+    ) {
+      let buildTarget = '^build';
+      if (hasPlugin) {
+        const matchingPlugin = await findPluginForConfigFile(
+          host,
+          buildPlugin,
+          joinPathFragments(options.appProjectRoot, buildConfigFile)
+        );
+        if (matchingPlugin && typeof matchingPlugin !== 'string') {
+          buildTarget = `^${
+            (matchingPlugin.options as any)?.buildTargetName ?? 'build'
+          }`;
+        }
+      }
+      await addE2eCiTargetDefaults(
+        host,
+        '@nx/cypress/plugin',
+        buildTarget,
+        joinPathFragments(options.e2eProjectRoot, `cypress.config.ts`)
+      );
+    }
+
     tasks.push(cypressTask);
   } else if (options.e2eTestRunner === 'playwright') {
     const { configurationGenerator: playwrightConfigGenerator } = ensurePackage<
@@ -411,6 +459,36 @@ export async function applicationGeneratorInternal(host: Tree, schema: Schema) {
       webServerAddress: options.e2eWebServerAddress,
       addPlugin: options.addPlugin,
     });
+
+    if (
+      options.addPlugin ||
+      readNxJson(host).plugins?.find((p) =>
+        typeof p === 'string'
+          ? p === '@nx/playwright/plugin'
+          : p.plugin === '@nx/playwright/plugin'
+      )
+    ) {
+      let buildTarget = '^build';
+      if (hasPlugin) {
+        const matchingPlugin = await findPluginForConfigFile(
+          host,
+          buildPlugin,
+          joinPathFragments(options.appProjectRoot, buildConfigFile)
+        );
+        if (matchingPlugin && typeof matchingPlugin !== 'string') {
+          buildTarget = `^${
+            (matchingPlugin.options as any)?.buildTargetName ?? 'build'
+          }`;
+        }
+      }
+      await addE2eCiTargetDefaults(
+        host,
+        '@nx/playwright/plugin',
+        buildTarget,
+        joinPathFragments(options.e2eProjectRoot, `playwright.config.ts`)
+      );
+    }
+
     tasks.push(playwrightTask);
   }
   if (options.unitTestRunner === 'jest') {

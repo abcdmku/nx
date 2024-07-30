@@ -1,7 +1,7 @@
 import 'nx/src/internal-testing-utils/mock-project-graph';
 
 import { installedCypressVersion } from '@nx/cypress/src/utils/cypress-version';
-import { readProjectConfiguration, Tree } from '@nx/devkit';
+import { readNxJson, readProjectConfiguration, Tree } from '@nx/devkit';
 import { getProjects, readJson } from '@nx/devkit';
 import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
 
@@ -38,6 +38,14 @@ describe('app', () => {
       expect(readProjectConfiguration(tree, 'my-app-e2e').root).toEqual(
         'my-app-e2e'
       );
+      expect(readNxJson(tree).targetDefaults['e2e-ci--**/*'])
+        .toMatchInlineSnapshot(`
+        {
+          "dependsOn": [
+            "^build",
+          ],
+        }
+      `);
     }, 60_000);
 
     it('should update tags and implicit dependencies', async () => {
