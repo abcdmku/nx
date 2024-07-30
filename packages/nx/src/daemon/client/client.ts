@@ -61,6 +61,10 @@ import {
   UPDATE_CONTEXT_FILES,
   type HandleUpdateContextFilesMessage,
 } from '../message-types/update-context-files';
+import {
+  CLEAR_CACHED_SYNC_GENERATOR_CHANGES,
+  type HandleCachedClearSyncGeneratorChangesMessage,
+} from '../message-types/clear-cached-sync-generator-changes';
 
 const DAEMON_ENV_SETTINGS = {
   NX_PROJECT_GLOB_CACHE: 'false',
@@ -366,6 +370,14 @@ export class DaemonClient {
       change.content = Buffer.from(change.content);
     }
     return changes;
+  }
+
+  clearSyncGeneratorChanges(generators: string[]): Promise<void> {
+    const message: HandleCachedClearSyncGeneratorChangesMessage = {
+      type: CLEAR_CACHED_SYNC_GENERATOR_CHANGES,
+      generators,
+    };
+    return this.sendToDaemonViaQueue(message);
   }
 
   getRegisteredSyncGenerators(): Promise<string[]> {
