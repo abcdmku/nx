@@ -10,19 +10,22 @@ import { webStaticServeGenerator } from '@nx/web';
 
 import { nxVersion } from '../../../utils/versions';
 import { NormalizedSchema } from '../schema';
+import { findPluginForConfigFile } from '@nx/devkit/src/utils/find-plugin-for-config-file';
+import { addE2eCiTargetDefaults } from '@nx/devkit/src/generators/target-defaults-utils';
 
 export async function addE2e(
   tree: Tree,
   options: NormalizedSchema
 ): Promise<GeneratorCallback> {
+  const nxJson = readNxJson(tree);
+  const hasPlugin = nxJson.plugins?.some((p) =>
+    typeof p === 'string'
+      ? p === '@nx/vite/plugin'
+      : p.plugin === '@nx/vite/plugin'
+  );
+
   switch (options.e2eTestRunner) {
     case 'cypress': {
-      const nxJson = readNxJson(tree);
-      const hasPlugin = nxJson.plugins?.some((p) =>
-        typeof p === 'string'
-          ? p === '@nx/vite/plugin'
-          : p.plugin === '@nx/vite/plugin'
-      );
       if (!hasPlugin) {
         await webStaticServeGenerator(tree, {
           buildTarget: `${options.projectName}:build`,
@@ -42,7 +45,7 @@ export async function addE2e(
         tags: [],
         implicitDependencies: [options.projectName],
       });
-      return await configurationGenerator(tree, {
+      const e2eTask = await configurationGenerator(tree, {
         ...options,
         project: options.e2eProjectName,
         directory: 'src',
@@ -52,6 +55,43 @@ export async function addE2e(
         baseUrl: 'http://localhost:4200',
         jsx: true,
       });
+
+      if (
+        options.addPlugin ||
+        readNxJson(tree).plugins?.find((p) =>
+          typeof p === 'string'
+            ? p === '@nx/cypress/plugin'
+            : p.plugin === '@nx/cypress/plugin'
+        )
+      ) {
+        let buildTarget = '^build';
+        if (hasPlugin) {
+          const matchingPlugin = await findPluginForConfigFile(
+            tree,
+            `@nx/vite/plugin`,
+            joinPathFragments(
+              options.appProjectRoot,
+              `vite.config.${options.js ? 'js' : 'ts'}`
+            )
+          );
+          if (matchingPlugin && typeof matchingPlugin !== 'string') {
+            buildTarget = `^${
+              (matchingPlugin.options as any)?.buildTargetName ?? 'build'
+            }`;
+          }
+        }
+        await addE2eCiTargetDefaults(
+          tree,
+          '@nx/cypress/plugin',
+          buildTarget,
+          joinPathFragments(
+            options.e2eProjectRoot,
+            `cypress.config.${options.js ? 'js' : 'ts'}`
+          )
+        );
+      }
+
+      return e2eTask;
     }
     case 'playwright': {
       const { configurationGenerator } = ensurePackage<
@@ -64,7 +104,7 @@ export async function addE2e(
         targets: {},
         implicitDependencies: [options.projectName],
       });
-      return configurationGenerator(tree, {
+      const e2eTask = await configurationGenerator(tree, {
         ...options,
         project: options.e2eProjectName,
         skipFormat: true,
@@ -78,6 +118,40 @@ export async function addE2e(
         }`,
         webServerAddress: 'http://localhost:4200',
       });
+
+      if (
+        options.addPlugin ||
+        readNxJson(tree).plugins?.find((p) =>
+          typeof p === 'string'
+            ? p === '@nx/playwright/plugin'
+            : p.plugin === '@nx/playwright/plugin'
+        )
+      ) {
+        let buildTarget = '^build';
+        if (hasPlugin) {
+          const matchingPlugin = await findPluginForConfigFile(
+            tree,
+            `@nx/vite/plugin`,
+            joinPathFragments(
+              options.appProjectRoot,
+              `vite.config.${options.js ? 'js' : 'ts'}`
+            )
+          );
+          if (matchingPlugin && typeof matchingPlugin !== 'string') {
+            buildTarget = `^${
+              (matchingPlugin.options as any)?.buildTargetName ?? 'build'
+            }`;
+          }
+        }
+        await addE2eCiTargetDefaults(
+          tree,
+          '@nx/playwright/plugin',
+          buildTarget,
+          joinPathFragments(options.e2eProjectRoot, `playwright.config.ts`)
+        );
+      }
+
+      return e2eTask;
     }
     case 'none':
     default:
